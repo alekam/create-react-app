@@ -23,14 +23,77 @@ var launchEditorEndpoint = require('./launchEditorEndpoint');
 var formatWebpackMessages = require('./formatWebpackMessages');
 var ErrorOverlay = require('react-error-overlay');
 
+//
+// Copied from standart webpack-dev-server
+//
+
+function getCurrentScriptSource() {
+  // `document.currentScript` is the most accurate way to find the current script,
+  // but is not supported in all browsers.
+  if (document.currentScript) { return document.currentScript.getAttribute('src'); }
+  // Fall back to getting all scripts in the document.
+  const scriptElements = document.scripts || [];
+  const currentScript = scriptElements[scriptElements.length - 1];
+  if (currentScript) { return currentScript.getAttribute('src'); }
+  // Fail as there was no script to use.
+  throw new Error('[WDS] Failed to get current script source.');
+}
+
+let urlParts;
+let hotReload = true;
+if (typeof window !== 'undefined') {
+  const qs = window.location.search.toLowerCase();
+  hotReload = qs.indexOf('hotreload=false') === -1;
+}
+if (typeof __resourceQuery === 'string' && __resourceQuery) {
+  // If this bundle is inlined, use the resource query to get the correct url.
+  urlParts = url.parse(__resourceQuery.substr(1));
+} else {
+  // Else, get the url from the <script> this file was called with.
+  let scriptHost = getCurrentScriptSource();
+  // eslint-disable-next-line no-useless-escape
+  scriptHost = scriptHost.replace(/\/[^\/]+$/, '');
+  urlParts = url.parse((scriptHost || '/'), false, true);
+}
+
+if (!urlParts.port || urlParts.port === '0') {
+  urlParts.port = self.location.port;
+}
+
+let hostname = urlParts.hostname;
+let protocol = urlParts.protocol;
+
+
+// check ipv4 and ipv6 `all hostname`
+if (hostname === '0.0.0.0' || hostname === '::') {
+  // why do we need this check?
+  // hostname n/a for file protocol (example, when using electron, ionic)
+  // see: https://github.com/webpack/webpack-dev-server/pull/384
+  // eslint-disable-next-line no-bitwise
+  if (self.location.hostname && !!~self.location.protocol.indexOf('http')) {
+    hostname = self.location.hostname;
+  }
+}
+
+// `hostname` can be empty when the script path is relative. In that case, specifying
+// a protocol would result in an invalid URL.
+// When https is used in the app, secure websockets are always necessary
+// because the browser doesn't accept non-secure websockets.
+if (hostname && (self.location.protocol === 'https:' || urlParts.hostname === '0.0.0.0')) {
+  protocol = self.location.protocol;
+}
+
+
 ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
   // Keep this sync with errorOverlayMiddleware.js
   fetch(
+    protocol + '//' + hostname + ((urlParts.port) ? ':' + urlParts.port : '') +
     launchEditorEndpoint +
       '?fileName=' +
       window.encodeURIComponent(errorLocation.fileName) +
       '&lineNumber=' +
-      window.encodeURIComponent(errorLocation.lineNumber || 1)
+      window.encodeURIComponent(errorLocation.lineNumber || 1),
+      { mode: 'no-cors' }
   );
 });
 
@@ -58,11 +121,11 @@ if (module.hot && typeof module.hot.dispose === 'function') {
 // Connect to WebpackDevServer via a socket.
 var connection = new SockJS(
   url.format({
-    protocol: window.location.protocol,
-    hostname: window.location.hostname,
-    port: window.location.port,
-    // Hardcoded in WebpackDevServer
-    pathname: '/sockjs-node',
+    protocol,
+    auth: urlParts.auth,
+    hostname,
+    port: urlParts.port,
+    pathname: urlParts.path == null || urlParts.path === '/' ? '/sockjs-node' : urlParts.path
   })
 );
 
@@ -70,7 +133,7 @@ var connection = new SockJS(
 // to avoid spamming the console. Disconnect usually happens
 // when developer stops the server.
 connection.onclose = function() {
-  if (typeof console !== 'undefined' && typeof console.info === 'function') {
+  if (typeof console !== 'undefined' && typeof console.info === 'function') {    
     console.info(
       'The development server has disconnected.\nRefresh the page if necessary.'
     );
