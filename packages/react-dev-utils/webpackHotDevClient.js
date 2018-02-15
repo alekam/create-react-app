@@ -92,7 +92,9 @@ ErrorOverlay.setEditorHandler(function editorHandler(errorLocation) {
       '?fileName=' +
       window.encodeURIComponent(errorLocation.fileName) +
       '&lineNumber=' +
-      window.encodeURIComponent(errorLocation.lineNumber || 1),
+      window.encodeURIComponent(errorLocation.lineNumber || 1) +
+      '&colNumber=' +
+      window.encodeURIComponent(errorLocation.colNumber || 1),
       { mode: 'no-cors' }
   );
 });
